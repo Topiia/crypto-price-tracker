@@ -1,0 +1,81 @@
+/* src/components/RealTimeChart.css */
+.chart-wrapper {
+    background-color: var(--color-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 400px;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.chart-header h3 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: 1.2rem;
+}
+
+.asset-selector {
+    display: flex;
+    gap: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.05);
+    padding: 4px;
+    border-radius: 8px;
+}
+
+.asset-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-text-dim);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.asset-btn:hover {
+    color: var(--color-text);
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.asset-btn.active {
+    background-color: var(--btn-color);
+    color: #000;
+    /* Contrast text for active button */
+    font-weight: 700;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.chart-container-inner {
+    flex-grow: 1;
+    width: 100%;
+    min-height: 300px;
+}
+
+@media (max-width: 600px) {
+    .chart-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .asset-selector {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .asset-btn {
+        flex: 1;
+    }
+}

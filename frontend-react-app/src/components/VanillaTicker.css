@@ -1,0 +1,43 @@
+/* src/components/VanillaTicker.css */
+
+.vanilla-ticker-container {
+    width: 100%;
+    margin-top: 20px;
+    overflow: hidden; /* Ensure content outside is hidden */
+}
+
+.vanilla-ticker {
+    /* Base styles for the pure JS-controlled element */
+    background-color: #222;
+    padding: 10px 0;
+    white-space: nowrap; /* Keep items on one line */
+    animation: scroll-ticker 30s linear infinite; /* Animation for a moving ticker */
+    display: inline-block;
+}
+
+.ticker-item {
+    margin: 0 30px;
+    font-size: 1.1em;
+    font-weight: 500;
+    color: var(--color-light);
+    padding: 5px 0;
+}
+
+.ticker-item .trend {
+    margin-left: 8px;
+    font-weight: 700;
+}
+
+.ticker-item.up {
+    color: #4CAF50; /* Green */
+}
+
+.ticker-item.down {
+    color: #FF6B6B; /* Red */
+}
+
+/* Define the scrolling animation */
+@keyframes scroll-ticker {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+}

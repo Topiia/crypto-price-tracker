@@ -1,0 +1,77 @@
+.price-table-container {
+    width: 100%;
+    overflow-x: auto;
+    background-color: var(--color-card);
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+}
+
+.price-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.price-table th {
+    padding: 1rem;
+    color: var(--color-text-dim);
+    font-weight: 500;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.price-table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+}
+
+.price-table tr:last-child td {
+    border-bottom: none;
+}
+
+.asset-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.asset-badge.BTC {
+    color: #f2a900;
+    background: rgba(242, 169, 0, 0.15);
+}
+
+.asset-badge.ETH {
+    color: #627eea;
+    background: rgba(98, 126, 234, 0.15);
+}
+
+.asset-badge.SOL {
+    color: #00ffbd;
+    background: rgba(0, 255, 189, 0.15);
+}
+
+.asset-badge.DOGE {
+    color: #ba9f33;
+    background: rgba(186, 159, 51, 0.15);
+}
+
+.price-col {
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 500;
+}
+
+.trend-up {
+    color: var(--color-success);
+}
+
+.trend-down {
+    color: var(--color-danger);
+}
+
+@media (max-width: 600px) {
+    .volume-col {
+        display: none;
+    }
+}
