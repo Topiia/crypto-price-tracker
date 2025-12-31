@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Full System Architecture</title>
+
+<style>
+body {
+    margin:0;
+    background:#000;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-family:system-ui,sans-serif;
+    color:white;
+}
+svg { max-width:2100px; }
+.box { fill:#111; stroke:#444; stroke-width:2; rx:10; }
+.sub { fill:#0b0b0b; stroke:#555; stroke-width:1; rx:8; }
+.label { fill:#fff; font-size:15px; text-anchor:middle; }
+.text { fill:#fff; font-size:12px; }
+.small { fill:#aaa; font-size:11px; }
+.path { fill:none; stroke-width:2; }
+.ctrl { stroke:#8bc34a; stroke-dasharray:6 4; }
+.req { stroke:#00e5ff; }
+.res { stroke:#ff9800; }
+.err { stroke:#f44336; stroke-dasharray:4 6; }
+.reqFlow { stroke-dasharray:6 14; animation:dash 2.4s linear infinite; }
+.resFlow { stroke-dasharray:6 14; animation:dashRev 2.4s linear infinite; }
+@keyframes dash { to { stroke-dashoffset:-40 } }
+@keyframes dashRev { to { stroke-dashoffset:40 } }
+.legend text { fill:#fff; font-size:12px; }
+</style>
+</head>
+
+<body>
+<svg viewBox="0 0 2000 1100">
+
+<defs>
+<marker id="arrowCtrl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#8bc34a"/>
+</marker>
+<marker id="arrowReq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#00e5ff"/>
+</marker>
+<marker id="arrowRes" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#ff9800"/>
+</marker>
+<marker id="arrowErr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#f44336"/>
+</marker>
+</defs>
+
+<!-- LEGEND -->
+<g class="legend" transform="translate(60,80)">
+<circle r="5" fill="#8bc34a"/><text x="12" y="4">Control</text>
+<circle cy="24" r="5" fill="#00e5ff"/><text x="12" y="28">Request</text>
+<circle cy="48" r="5" fill="#ff9800"/><text x="12" y="52">Response</text>
+<circle cy="72" r="5" fill="#f44336"/><text x="12" y="76">Error / Close</text>
+</g>
+
+<!-- FRONTEND -->
+<rect x="60" y="280" width="320" height="160" class="box"/>
+<text x="220" y="360" class="label">App / Dashboard</text>
+
+<rect x="450" y="180" width="420" height="180" class="box"/>
+<text x="660" y="245" class="label">useDataFetcher Hook</text>
+<text x="660" y="270" class="small">isLoading / isWebSocketConnected</text>
+
+<rect x="450" y="420" width="420" height="200" class="box"/>
+<text x="660" y="505" class="label">State Store (Sliding Window)</text>
+
+<rect x="930" y="300" width="420" height="260" class="box"/>
+<text x="1140" y="395" class="label">Chart Renderer</text>
+<text x="1140" y="420" class="small">Renders last 100 points</text>
+
+<!-- JSON.parse correctly placed -->
+<rect x="820" y="380" width="130" height="40" class="sub"/>
+<text x="885" y="405" class="text">JSON.parse()</text>
+
+<!-- Cleanup -->
+<rect x="60" y="500" width="260" height="90" class="sub"/>
+<text x="190" y="540" class="text">Unmount Cleanup</text>
+<text x="190" y="560" class="small">close WS + block setState</text>
+
+<!-- BACKEND -->
+<rect x="1450" y="120" width="440" height="200" class="box"/>
+<text x="1670" y="175" class="label">HTTP Server</text>
+<text x="1670" y="205" class="small">CORS + PORT (.env)</text>
+<text x="1670" y="225" class="small">Blocking</text>
+
+<rect x="1450" y="400" width="440" height="220" class="box"/>
+<text x="1670" y="455" class="label">Data Generator</text>
+<text x="1670" y="480" class="small">ASSET_PRICES (RAM)</text>
+
+<rect x="1480" y="480" width="380" height="130" class="sub"/>
+<text x="1670" y="515" class="small">random walk → mutate</text>
+<text x="1670" y="535" class="small">json.dumps()</text>
+<text x="1670" y="555" class="small">await sleep() → yield</text>
+
+<rect x="1450" y="700" width="440" height="220" class="box"/>
+<text x="1670" y="755" class="label">WebSocket Server</text>
+<text x="1670" y="785" class="small">Async Event Loop</text>
+
+<rect x="1450" y="950" width="440" height="160" class="box"/>
+<text x="1670" y="1020" class="label">Connected Clients</text>
+
+<!-- FLOWS -->
+<path d="M870 250 L1450 185" class="path req reqFlow" marker-end="url(#arrowReq)"/>
+<text x="1080" y="210" class="text">HTTP snapshot</text>
+
+<path d="M1450 260 L870 330" class="path res resFlow" marker-end="url(#arrowRes)"/>
+<text x="1130" y="300" class="text">50 historical points</text>
+
+<path d="M870 360 L1450 720" class="path req reqFlow" marker-end="url(#arrowReq)"/>
+<text x="1080" y="540" class="text">WebSocket connect</text>
+
+<path d="M1450 550 L950 400" class="path res resFlow" marker-end="url(#arrowRes)"/>
+<text x="1120" y="470" class="text">JSON ticks</text>
+
+<path d="M950 420 L870 420" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+
+<path d="M660 360 L660 420" class="path res" marker-end="url(#arrowRes)"/>
+<path d="M870 480 L930 430" class="path res" marker-end="url(#arrowRes)"/>
+
+<!-- Cleanup connections -->
+<path d="M450 260 L190 500" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<path d="M190 590 L1450 720" class="path err" marker-end="url(#arrowErr)"/>
+
+<!-- Divider -->
+<line x1="1350" y1="0" x2="1350" y2="1100" stroke="#333" stroke-dasharray="8 6"/>
+<text x="1280" y="40" class="small">Frontend (Consumer)</text>
+<text x="1420" y="40" class="small">Backend (Producer)</text>
+
+<text x="900" y="40" class="text">Producer–Consumer Architecture</text>
+
+</svg>
+</body>
+</html>

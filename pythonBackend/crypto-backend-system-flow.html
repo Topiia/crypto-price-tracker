@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8" />
+<title>Crypto Tracker – Python Backend Architecture (Final Verified)</title>
+
+<style>
+body {
+    margin:0;
+    background:#000;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-family:system-ui,sans-serif;
+}
+svg { max-width:1650px; }
+.box { fill:#111; stroke:#444; stroke-width:2; rx:10; }
+.sub { fill:#0b0b0b; stroke:#555; stroke-width:1; rx:8; }
+.label { fill:#fff; font-size:14px; text-anchor:middle; }
+.small { fill:#aaa; font-size:11px; text-anchor:middle; }
+.text { fill:#fff; font-size:12px; }
+.muted { fill:#aaa; font-size:11px; }
+.path { fill:none; stroke-width:2; }
+.ctrl { stroke:#8bc34a; stroke-dasharray:6 4; }
+.req { stroke:#00e5ff; }
+.res { stroke:#ff9800; }
+.err { stroke:#f44336; stroke-dasharray:4 6; }
+.reqFlow { stroke-dasharray:6 14; animation:dash 2.4s linear infinite; }
+.resFlow { stroke-dasharray:6 14; animation:dashRev 2.4s linear infinite; }
+@keyframes dash { to { stroke-dashoffset:-40 } }
+@keyframes dashRev { to { stroke-dashoffset:40 } }
+.legend text { fill:#fff; font-size:12px; }
+</style>
+</head>
+
+<body>
+
+<svg viewBox="0 0 1800 900">
+
+<defs>
+<marker id="arrowCtrl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#8bc34a"/>
+</marker>
+<marker id="arrowReq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#00e5ff"/>
+</marker>
+<marker id="arrowRes" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#ff9800"/>
+</marker>
+<marker id="arrowErr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#f44336"/>
+</marker>
+</defs>
+
+<!-- LEGEND -->
+<g class="legend" transform="translate(60,80)">
+<circle r="5" fill="#8bc34a"/><text x="14" y="4">Control</text>
+<circle cy="24" r="5" fill="#00e5ff"/><text x="14" y="28">Request</text>
+<circle cy="48" r="5" fill="#ff9800"/><text x="14" y="52">Response</text>
+<circle cy="72" r="5" fill="#f44336"/><text x="14" y="76">Error / Cleanup</text>
+</g>
+
+<!-- CLIENTS -->
+<rect x="60" y="330" width="300" height="200" class="box"/>
+<text x="210" y="425" class="label">Connected Clients</text>
+
+<!-- HTTP -->
+<rect x="450" y="120" width="400" height="220" class="box"/>
+<text x="650" y="180" class="label">HTTP Server (Blocking)</text>
+<text x="650" y="210" class="small">CORS + PORT (.env)</text>
+<text x="650" y="230" class="small">One-shot request</text>
+
+<!-- WS -->
+<rect x="450" y="420" width="400" height="240" class="box"/>
+<text x="650" y="485" class="label">WebSocket Server (Async)</text>
+<text x="650" y="515" class="small">Event Loop</text>
+<text x="650" y="535" class="small">Long-lived connections</text>
+
+<!-- GENERATOR -->
+<rect x="950" y="240" width="600" height="360" class="box"/>
+<text x="1250" y="290" class="label">Data Generator (Kernel)</text>
+<text x="1250" y="315" class="small">ASSET_PRICES (Single Source)</text>
+
+<text x="1250" y="440" class="small">History: reverse walk (now → past)</text>
+<text x="1250" y="460" class="small">Tick interval controls frequency</text>
+
+<rect x="980" y="330" width="540" height="140" class="sub"/>
+<text x="1250" y="360" class="text">while True:</text>
+<text x="1250" y="380" class="muted">random walk → mutate</text>
+<text x="1250" y="400" class="muted">json.dumps(batch)</text>
+<text x="1250" y="420" class="muted">await asyncio.sleep() → yield</text>
+
+<!-- FLOWS -->
+<path d="M360 380 L450 240" class="path req reqFlow" marker-end="url(#arrowReq)"/>
+<text x="390" y="300" class="text">GET /api/initial_data</text>
+
+<path d="M850 240 L950 300" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<text x="890" y="260" class="muted">HTTP pulls snapshot (read-only)</text>
+
+<path d="M450 260 L360 420" class="path res resFlow" marker-end="url(#arrowRes)"/>
+<text x="390" y="455" class="text">50 historical points</text>
+
+<path d="M360 440 L450 520" class="path req reqFlow" marker-end="url(#arrowReq)"/>
+<text x="390" y="500" class="text">WebSocket handshake</text>
+
+<path d="M850 520 L950 420" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<text x="890" y="470" class="muted">next(generator)</text>
+
+<path d="M950 460 L850 460" class="path res resFlow stream" marker-end="url(#arrowRes)"/>
+<text x="890" y="490" class="text">Serialize → Broadcast</text>
+
+<path d="M450 560 L360 560" class="path res resFlow" marker-end="url(#arrowRes)"/>
+<text x="390" y="595" class="text">Fan-out (asyncio.gather)</text>
+
+<path d="M450 600 L450 820 L210 820" class="path err" marker-end="url(#arrowErr)"/>
+<text x="360" y="850" class="text">Disconnect → remove client</text>
+
+</svg>
+</body>
+</html>

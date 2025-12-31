@@ -49,6 +49,7 @@ def generate_real_time_feed(interval_seconds: float = 1.0):
 
     This function is intended to be run by the WebSocket server (1.3).
     """
+    """ the global keyword is essential when you intend to change the value of a global variable from within a function, otherwise, Python will create a temporary local variable with the same name. """
     global ASSET_PRICES  # Access the global price state
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting real-time data feed...")
@@ -90,7 +91,7 @@ def get_initial_data(history_size: int = 50):
     initial_data = []
     # Temporarily reset prices for a clean history simulation
     temp_prices = {k: v for k, v in ASSET_PRICES.items()} 
-
+ 
     # Generate 'history_size' number of data points for each asset
     for i in range(history_size):
         # Calculate the random time step to go back in history

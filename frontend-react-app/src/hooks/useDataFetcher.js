@@ -1,11 +1,15 @@
 // src/hooks/useDataFetcher.js
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // --- Configuration ---
 // Match these to your Python backend ports
 const HTTP_API_URL = 'http://localhost:8000/api/initial_data';
 const WS_API_URL = 'ws://localhost:8001';
+
+// Reconnection configuration
+const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]; // ms
+const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
 
 // --- Custom Hook Definition ---
 const useDataFetcher = () => {
@@ -15,8 +19,12 @@ const useDataFetcher = () => {
   const [error, setError] = useState(null);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
 
+  // Refs for reconnection logic (persist across renders)
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimeoutRef = useRef(null);
+  const wsRef = useRef(null);
+
   useEffect(() => {
-    let ws = null; // Variable to hold the WebSocket instance
     let isMounted = true; // Cleanup flag for async operations
 
     // ------------------------------------
@@ -48,15 +56,23 @@ const useDataFetcher = () => {
     // 2. Setup WebSocket (Real-Time API)
     // ------------------------------------
     const setupWebSocket = () => {
-      ws = new WebSocket(WS_API_URL);
+      // Clear any existing reconnection timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
 
-      ws.onopen = () => {
+      wsRef.current = new WebSocket(WS_API_URL);
+
+      wsRef.current.onopen = () => {
         console.log("WebSocket connected to Python server.");
+        // Reset reconnection attempt counter on successful connection
+        reconnectAttemptRef.current = 0;
         if (isMounted) setIsWebSocketConnected(true);
       };
 
       // 3. Process incoming messages and update state
-      ws.onmessage = (event) => {
+      wsRef.current.onmessage = (event) => {
         if (!isMounted) return;
 
         try {
@@ -78,17 +94,43 @@ const useDataFetcher = () => {
         }
       };
 
-      ws.onerror = (e) => {
+      wsRef.current.onerror = (e) => {
         if (isMounted) {
           console.error("WebSocket Error:", e);
           // Don't set hard error here to avoid blocking UI, just show disconnected
         }
       };
 
-      ws.onclose = () => {
-        console.log("WebSocket disconnected.");
-        if (isMounted) setIsWebSocketConnected(false);
+      wsRef.current.onclose = (event) => {
+        console.log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+        if (isMounted) {
+          setIsWebSocketConnected(false);
+
+          // Attempt to reconnect with exponential backoff
+          attemptReconnect();
+        }
       };
+    };
+
+    // ------------------------------------
+    // 3. Reconnection Logic with Exponential Backoff
+    // ------------------------------------
+    const attemptReconnect = () => {
+      if (!isMounted) return;
+
+      // Calculate delay using exponential backoff
+      const delayIndex = Math.min(reconnectAttemptRef.current, RECONNECT_DELAYS.length - 1);
+      const delay = RECONNECT_DELAYS[delayIndex];
+
+      console.log(`Attempting to reconnect in ${delay / 1000}s (attempt ${reconnectAttemptRef.current + 1})...`);
+
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (!isMounted) return;
+
+        reconnectAttemptRef.current++;
+        console.log(`Reconnecting to WebSocket... (attempt ${reconnectAttemptRef.current})`);
+        setupWebSocket();
+      }, delay);
     };
 
     fetchInitialData();
@@ -99,9 +141,18 @@ const useDataFetcher = () => {
     // ------------------------------------
     return () => {
       isMounted = false;
-      if (ws && ws.readyState === 1) { // readyState 1 means OPEN
-        ws.close();
+
+      // Clear any pending reconnection timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
+
+      // Close WebSocket if open
+      if (wsRef.current && wsRef.current.readyState === 1) { // readyState 1 means OPEN
+        wsRef.current.close();
+      }
+
       console.log("Data Fetcher Hook cleaned up.");
     };
   }, []); // Empty dependency array means this runs only ONCE on mount

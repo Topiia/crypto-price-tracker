@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Crypto Tracker – React Frontend Architecture (Final Verified)</title>
+
+<style>
+body {
+    margin:0;
+    background:#000;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-family:system-ui,sans-serif;
+}
+svg { max-width:1500px; }
+
+.box { fill:#111; stroke:#444; stroke-width:2; rx:10; }
+.sub { fill:#0b0b0b; stroke:#555; stroke-width:1; rx:8; }
+
+.label { fill:#fff; font-size:14px; text-anchor:middle; }
+.text { fill:#fff; font-size:12px; }
+.muted { fill:#aaa; font-size:11px; }
+.small { fill:#aaa; font-size:11px; }
+
+.path { fill:none; stroke-width:2; }
+.ctrl { stroke:#8bc34a; stroke-dasharray:6 4; }
+.req { stroke:#00e5ff; }
+.res { stroke:#ff9800; }
+.err { stroke:#f44336; stroke-dasharray:4 6; }
+
+.reqFlow { stroke-dasharray:6 14; animation:dash 2.4s linear infinite; }
+.resFlow { stroke-dasharray:6 14; animation:dashRev 2.4s linear infinite; }
+
+@keyframes dash { to { stroke-dashoffset:-40; } }
+@keyframes dashRev { to { stroke-dashoffset:40; } }
+
+.legend text { fill:#fff; font-size:12px; }
+</style>
+</head>
+
+<body>
+
+<svg viewBox="0 0 1600 820">
+
+<defs>
+<marker id="arrowCtrl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#8bc34a"/>
+</marker>
+<marker id="arrowReq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#00e5ff"/>
+</marker>
+<marker id="arrowRes" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#ff9800"/>
+</marker>
+<marker id="arrowErr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6">
+<path d="M0 0 L10 5 L0 10 Z" fill="#f44336"/>
+</marker>
+</defs>
+
+<!-- LEGEND -->
+<g class="legend" transform="translate(60,80)">
+<circle r="5" fill="#8bc34a"/><text x="14" y="4">Control</text>
+<circle cy="24" r="5" fill="#00e5ff"/><text x="14" y="28">Request</text>
+<circle cy="48" r="5" fill="#ff9800"/><text x="14" y="52">Response</text>
+<circle cy="72" r="5" fill="#f44336"/><text x="14" y="76">Error / Close</text>
+</g>
+
+<!-- COMPONENTS -->
+<rect x="60" y="300" width="280" height="180" class="box"/>
+<text x="200" y="390" class="label">App / Dashboard</text>
+
+<rect x="430" y="180" width="420" height="210" class="box"/>
+<text x="640" y="235" class="label">useDataFetcher Hook</text>
+<text x="640" y="260" class="muted">dataPoints / isLoading / isWebSocketConnected</text>
+
+<rect x="430" y="460" width="420" height="180" class="box"/>
+<text x="640" y="545" class="label">State Store (Sliding Window)</text>
+
+<!-- Derived -->
+<rect x="430" y="660" width="420" height="90" class="sub"/>
+<text x="640" y="695" class="text">Derived State</text>
+<text x="640" y="715" class="small">latestData / uniqueAssets</text>
+
+<rect x="950" y="310" width="420" height="210" class="box"/>
+<text x="1160" y="405" class="label">Chart Renderer (Recharts)</text>
+<text x="1160" y="430" class="small">Renders last 100 points</text>
+
+<!-- Vanilla -->
+<rect x="930" y="600" width="420" height="120" class="sub"/>
+<text x="1140" y="650" class="text">VanillaTicker</text>
+<text x="1140" y="670" class="small">Direct DOM updates</text>
+
+<!-- JSON.parse on WS path -->
+<rect x="860" y="350" width="130" height="40" class="sub"/>
+<text x="925" y="375" class="text">JSON.parse()</text>
+
+<!-- Cleanup -->
+<rect x="60" y="520" width="240" height="90" class="sub"/>
+<text x="180" y="560" class="text">Unmount Cleanup</text>
+<text x="180" y="580" class="muted">ws.close() + block setState</text>
+
+<!-- FLOWS -->
+<path d="M340 350 L430 250" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<text x="370" y="260" class="muted">Component Mount</text>
+
+<!-- HTTP -->
+<path d="M640 300 L640 330" class="path req reqFlow" marker-end="url(#arrowReq)"/>
+<path d="M640 330 L640 380" class="path res resFlow" marker-end="url(#arrowRes)"/>
+<text x="665" y="350" class="text">Initial HTTP snapshot</text>
+
+<!-- Slice -->
+<path d="M640 380 L640 440" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<text x="665" y="415" class="muted">append + slice(-500)</text>
+
+<!-- Parallel WS -->
+<path d="M850 240 L950 340" class="path req reqFlow" marker-end="url(#arrowReq)"/>
+<text x="880" y="280" class="text">WebSocket Connect</text>
+<text x="880" y="300" class="muted">runs in parallel</text>
+
+<!-- WS → JSON → Hook -->
+<path d="M950 420 L860 370" class="path res resFlow" marker-end="url(#arrowRes)"/>
+<path d="M860 370 L850 460" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+
+<!-- State → Render -->
+<path d="M850 520 L950 430" class="path res" marker-end="url(#arrowRes)"/>
+<text x="900" y="505" class="text">State update → re-render</text>
+
+<!-- Derived -->
+<path d="M660 620 L660 660" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<path d="M660 620 L1140 600" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+
+<!-- Cleanup -->
+<path d="M430 260 L180 520" class="path ctrl" marker-end="url(#arrowCtrl)"/>
+<path d="M180 610 L950 340" class="path err" marker-end="url(#arrowErr)"/>
+
+<text x="450" y="735" class="text">WS close → isWebSocketConnected=false</text>
+
+</svg>
+</body>
+</html>

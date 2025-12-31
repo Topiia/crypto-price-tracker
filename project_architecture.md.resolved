@@ -1,0 +1,252 @@
+# Cryptocurrency Price Provider: Technical Architecture Guide
+
+## 1️⃣ Project Overview
+
+### Problem Statement
+This project solves the problem of **delivering high-frequency, low-latency financial data** to a web client without overloading the server or browser. It simulates a cryptocurrency exchange where prices update dozens of times per second.
+
+### Core Architecture Decisions
+*   **Dual-Protocol Approach**:
+    *   **HTTP (REST)**: Used for initial state load (historical data). It allows the application to paint a full chart immediately upon load without waiting for the WebSocket stream to accumulate data.
+    *   **WebSocket**: Used for real-time updates. It allows the server to push price changes instantly without the overhead of HTTP polling.
+*   **No Database**: The project runs entirely in memory (`RAM`). This simplifies architecture for the sake of demonstration and ensures zero latency from disk I/O, imitating the "hot path" of high-frequency trading engines.
+
+### High-Level Data Flow
+1.  **Generation**: Python backend generates random walk data.
+2.  **State**: Current state is held in a global Python dictionary.
+3.  **Transport**: Data is served via `HTTP GET` (startup) and `WebSocket Broadcast` (updates).
+4.  **Ingestion**: React Frontend fetches history, then subscribes to the live stream.
+5.  **Visualization**: Data flows into Recharts (graph) and vanilla DOM nodes (ticker).
+
+---
+
+## 2️⃣ Frontend Architecture (React)
+
+### 2.1 Folder & File Structure
+*   **[main.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/main.jsx)**: The React entry point. It mounts the application to the DOM.
+*   **[App.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/App.jsx)**: The root component. It acts as a shell for the global layout.
+*   **[views/Dashboard.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/views/Dashboard.jsx)**: A "container view". It holds the state processing logic and organizes the sub-components.
+*   **[hooks/useDataFetcher.js](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js)**: A custom hook isolating all network logic. State is managed here, not in the UI components.
+*   **[components/RealTimeChart.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/components/RealTimeChart.jsx)**: Wraps the `recharts` library. It handles memoization to prevent chart jank during high-frequency updates.
+*   **[components/PriceTable.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/components/PriceTable.jsx)**: Displays a snapshot of the most recent prices.
+*   **[components/VanillaTicker.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/components/VanillaTicker.jsx)**: A specialized component demonstrating hybrid React/Vanilla JS DOM manipulation.
+
+### 2.2 Component Responsibility Breakdown
+
+#### [App.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/App.jsx)
+*   **Responsibility**: Defines the global app wrapper and loads global CSS.
+*   **Explicitly NOT Doing**: Data fetching, state management, or complex layout logic.
+
+#### [Dashboard.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/views/Dashboard.jsx) (The Controller)
+*   **Responsibility**:
+    *   Calls [useDataFetcher](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#10-112) to get the raw data stream.
+    *   Derives secondary state: `uniqueAssets` (list of coins) and `latestData` (current price snapshot).
+    *   Handles "Loading" and "Error" UI states.
+    *   Distributes data to `Header`, [RealTimeChart](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/components/RealTimeChart.jsx#24-117), `PriceTable`, and `VanillaTicker`.
+*   **Explicitly NOT Doing**: Networking. It receives data ready-to-consume.
+
+#### [RealTimeChart.jsx](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/components/RealTimeChart.jsx)
+*   **Responsibility**: Visualizing time-series data.
+*   **Explicitly NOT Doing**: Modifying data. It only filters data for the *selected asset* using `useMemo`.
+*   **Interaction**: Receives the full `dataPoints` array but only renders a slice (last 100 points) to maintain 60 FPS.
+
+---
+
+## 3️⃣ Custom Hook Deep Dive ([useDataFetcher.js](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js))
+
+This hook encapsulates the **entire data lifecycle**.
+
+### State Variables
+*   `dataPoints`: An array of price objects. This is the "single source of truth" for the frontend.
+*   `isLoading`: Controls the initial loading skeleton.
+*   `isWebSocketConnected`: A boolean flag used to show the "Live/Offline" badge in the UI.
+
+### `useEffect` Lifecycle
+The hook uses a single `useEffect` with an empty dependency array `[]`. This ensures it runs **exactly once** when the component mounts.
+
+### Logic Flow (Line-by-Line Analysis)
+1.  **`isMounted` Flag**: A variable is set to `true` at the start and `false` in the cleanup function. This prevents "state updates on unmounted component" errors if the user navigates away while a fetch is in progress.
+2.  **[fetchInitialData](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#22-46) (HTTP)**:
+    *   Calls [fetch(HTTP_API_URL)](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#22-46).
+    *   On success: `setDataPoints(initialData)`.
+    *   This ensures the user sees a full graph immediately (`previous 50 points`).
+3.  **[setupWebSocket](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#47-93)**:
+    *   Called immediately after the HTTP fetch begins (parallel initialization).
+    *   **[onmessage](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#58-80)**: The critical "hot path".
+        *   Receives a JSON string (batch of updates).
+        *   **State Append Strategy**: `setDataPoints(prev => [...prev, ...newDataBatch].slice(-500))`.
+        *   **Sliding Window (`slice(-500)`)**: This is crucial. Without it, the array would grow infinitely, eventually crashing the browser tab due to memory exhaustion. We explicitly keep only the last 500 ticks.
+4.  **Race Condition Prevention**: Every state update is wrapped in `if (isMounted)`.
+
+### Cleanup Logic
+When the component unmounts:
+*   `ws.close()` is called to terminate the TCP connection.
+*   `isMounted = false` is set to block any pending async updates.
+
+---
+
+## 4️⃣ Frontend Runtime Data Flow
+
+1.  **Page Load**: [Dashboard](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/views/Dashboard.jsx#11-76) mounts. [useDataFetcher](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#10-112) is invoked.
+2.  **Initial HTTP Request**: Browser requests `GET :8000/api/initial_data`.
+3.  **State Population**: `dataPoints` is seeded with 50 historical items. Graph appears instantly.
+4.  **WebSocket Connection**: Client mimics a handshake to `ws://localhost:8001`.
+5.  **Live Tick Ingestion**:
+    *   Server yields a new batch (e.g., 4 prices).
+    *   [onmessage](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#58-80) fires.
+    *   `dataPoints` updates from `[50 items]` -> `[54 items]`.
+6.  **Continuous Re-render**:
+    *   React detects state change.
+    *   [Dashboard](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/views/Dashboard.jsx#11-76) re-renders.
+    *   `latestData` is recalculated (CPU cheap).
+    *   [RealTimeChart](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/components/RealTimeChart.jsx#24-117) re-memoizes the last 100 points (CPU cheap).
+    *   DOM updates.
+
+---
+
+## 5️⃣ Backend Architecture (Python)
+
+### 5.1 Backend File Structure
+*   **[data_generator.py](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/data_generator.py)**: The "Simulation Engine". It knows nothing about the web. It just produces dictionaries of data.
+*   **[api_server.py](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/api_server.py)**: A synchronous wrapper for serving historical data.
+*   **[websocket_server.py](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/websocket_server.py)**: An asynchronous wrapper for streaming real-time data.
+
+**Why Split?**
+This adheres to the **Single Responsibility Principle**. The generator can be unit-tested without a network. The HTTP server can be swapped for Flask/FastAPI without touching the generator. The WebSocket server handles the complex async networking separately from the blocking HTTP logic.
+
+---
+
+## 6️⃣ Data Generator Engine ([data_generator.py](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/data_generator.py))
+
+### Global State (`ASSET_PRICES`)
+A global dictionary acts as an "In-Memory Database".
+```python
+ASSET_PRICES = { "BTC": 60000.00, "ETH": 3500.00 ... }
+```
+**Why Global?** It ensures continuity. When the HTTP server reads history and the WebSocket server generates the next tick, they both reference the *same* current price base.
+
+### Random Walk Algorithm
+Function [generate_data_point](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/data_generator.py#22-41):
+1.  Takes `base_price`.
+2.  Multiplies by a random factor between `0.995` and `1.005` (±0.5% volatility).
+3.  Returns a new object with `id`, `timestamp` (UTC), and `price`.
+4.  Updates the Global State.
+
+### [generate_real_time_feed](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/data_generator.py#45-76) (Generator)
+This uses Python's `yield` keyword.
+*   It enters an infinite `while True` loop.
+*   It generates a batch of updates.
+*   `yield json.dumps(batch)`: It pauses execution and hands data to the caller.
+*   `time.sleep(interval)`: Simulates the "tick rate".
+
+---
+
+## 7️⃣ HTTP Server ([api_server.py](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/api_server.py))
+
+### Blocking Server
+It uses `http.server.SimpleHTTPRequestHandler`.
+*   **Why implementation is acceptable**: This demo is low-traffic. `http.server` is blocking (requests are handled one by one), but for serving a single JSON blob to a handful of users, it is perfectly adequate and has zero dependencies.
+
+### CORS Handling
+*   **Mandatory**: The React app runs on port `5173` (or `3000`). The Python API is on `8000`. Browsers block this by default.
+*   **Logic**: [_set_headers](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/api_server.py#22-34) adds `Access-Control-Allow-Origin: *`. This tells the browser "It is safe to let web pages from any domain read this data."
+
+---
+
+## 8️⃣ WebSocket Server ([websocket_server.py](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/websocket_server.py))
+
+### Async Event Loop
+Unlike the HTTP server, this uses `asyncio` and `websockets`. It is **non-blocking**.
+*   It can handle thousands of concurrent connections because it doesn't create a new thread per user.
+
+### [data_streamer](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/websocket_server.py#49-70) Coroutine
+*   Runs in the background.
+*   Consumes the [generate_real_time_feed](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/data_generator.py#45-76) generator.
+*   **Fan-Out Logic**:
+    ```python
+    broadcast_tasks = [client.send(data) for client in CONNECTED_CLIENTS]
+    await asyncio.gather(*broadcast_tasks)
+    ```
+    It sends the message to *all* clients effectively in parallel.
+
+### Zombie Connections
+The [handler](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/websocket_server.py#17-46) function uses a `try...finally` block.
+*   If a user closes the tab (`ConnectionClosedOK`) or crashes (`Exception`), the `finally` block **guarantees** removal from `CONNECTED_CLIENTS`. This prevents the server from trying to send data to a dead socket.
+
+---
+
+## 9️⃣ Backend Concurrency Model
+
+### Contrast
+1.  **HTTP (api_server.py)**: Threading/Process based (implicitly). One request blocks the thread until completed.
+2.  **WebSocket (websocket_server.py)**: Async/Await based. The "Event Loop" switches between tasks (accepting connections vs. sending data) whenever it encounters an `await`.
+    *   **Intentional Mix**: We use the right tool for the job. Simple request-response fits blocking HTTP. High-concurrency streaming fits Async IO.
+
+### Failure Analysis
+If `time.sleep()` (blocking) was used inside the WebSocket `async` functions instead of `await asyncio.sleep()`, the **entire server would freeze** for all clients. The event loop must never be blocked.
+
+---
+
+## 🔁 10️⃣ Frontend ↔ Backend Interaction
+
+1.  **Browser**: User opens `localhost:5173`.
+2.  **React**: [useDataFetcher](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#10-112) calls `GET :8000`.
+3.  **Python (HTTP)**:
+    *   Imports `ASSET_PRICES`.
+    *   Calculates 50 historical steps backwards.
+    *   Returns JSON `[...50 items...]`.
+4.  **React**: Renders the chart with 50 points.
+5.  **React**: Opens socket to `:8001`.
+6.  **Python (WS)**: Adds client to `CONNECTED_CLIENTS` set.
+7.  **Python (Streamer Loop)**:
+    *   Helper wakes up.
+    *   Updates `ASSET_PRICES` (e.g., BTC goes $60k -> $60.1k).
+    *   Yields JSON.
+    *   Broadcasts to `CONNECTED_CLIENTS`.
+8.  **React**:
+    *   Receives `$60.1k`.
+    *   Merges it: `[...50 items, new_item]`.
+    *   Chart updates to show the new tip.
+
+**Why Frontend Never Recalculates**: The backend is the "Source of Truth". The frontend is purely a "View" layer. It never attempts to predict price; it only visualizes what it is told.
+
+---
+
+## 11️⃣ Failure, Cleanup & Stability Analysis
+
+### Race Conditions
+*   **Scenario**: User clicks "Dashboard" -> HTTP Request starts -> User clicks "Home" (unmount) -> HTTP Request finishes.
+*   **Fix**: [useDataFetcher](file:///c:/python/revision/Cryptocurrency-price-project/frontend-react-app/src/hooks/useDataFetcher.js#10-112) uses `isMounted` check. It will *ignore* the result if the component is gone.
+
+### WebSocket Disconnections
+*   **Backend**: Removes client from set immediately.
+*   **Frontend**: `ws.onclose` updates `isWebSocketConnected` to `false`. The UI updates to show "Offline", alerting the user.
+
+### Memory Leaks
+*   **Frontend**: Data array is hard-capped at 500 items. Oldest items are dropped. `useEffect` cleanup closes the socket.
+*   **Backend**: `CONNECTED_CLIENTS` is a [set](file:///c:/python/revision/Cryptocurrency-price-project/pythonBackend/api_server.py#22-34) (O(1) lookup/remove). Disconnected clients are removed instantly, preventing memory bloat.
+
+---
+
+## 12️⃣ Performance & Scalability Considerations
+
+### The Sliding Window (`slice(-500)`)
+Without this, a user keeping the tab open for 24 hours would accumulate millions of objects in JavaScript memory, leading to garbage collection pauses and eventually a crash. 500 points provides enough history for context without taxing RAM.
+
+### Backend Scalability
+*   **HTTP**: The current `SimpleHTTPRequestHandler` is single-threaded (or limited threads). In production, this would be replaced by `Gunicorn` + `Nginx` behind a load balancer.
+*   **WebSocket**: `asyncio` is highly scalable. It can handle 10k+ concurrent connections on a single CPU core because it doesn't use threads.
+
+---
+
+## 13️⃣ Summary (Architect-Level)
+
+This project demonstrates a correct implementation of the **Producer-Consumer pattern** distributed over a network.
+
+1.  **Separation of Concerns**: Data generation is decoupled from data delivery.
+2.  **Hybrid Transport**: Uses HTTP for "Instant Start" and WebSockets for "Live Updates", creating a user experience that feels snappy and alive (Instant Load) yet responsive (Real-time).
+3.  **Resilience**: Explicit cleanup handlers on both client and server ensure the system is robust against network instability/user navigation.
+4.  **Evolution**: In a production environment:
+    *   Global `ASSET_PRICES` would move to **Redis**.
+    *   `data_generator` would be a separate microservice writing to Redis.
+    *   `api_server` and `websocket_server` would just read from Redis, allowing horizontal scaling across multiple servers.
