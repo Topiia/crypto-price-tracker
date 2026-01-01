@@ -10,8 +10,7 @@ const WS_API_URL = 'ws://localhost:8001';
 // Reconnection configuration
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]; // ms
 const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
-const MAX_RECONNECT_ATTEMPTS = 10; // Stop aggressive retries after this many failures
-const IDLE_RETRY_INTERVAL = 60000; // 60s - low-frequency ping during idle phase
+const MAX_RECONNECT_ATTEMPTS = 10; // Hard stop after this many failures
 
 // --- Custom Hook Definition ---
 const useDataFetcher = () => {
@@ -24,7 +23,6 @@ const useDataFetcher = () => {
   // Refs for reconnection logic (persist across renders)
   const reconnectAttemptRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
-  const idleRetryTimeoutRef = useRef(null); // For low-frequency pings in idle mode
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -68,16 +66,12 @@ const useDataFetcher = () => {
       wsRef.current = new WebSocket(WS_API_URL);
 
       wsRef.current.onopen = () => {
-        console.log("WebSocket connected to Python server.");
+        console.log("✅ WebSocket connected to Python server.");
 
-        // Clear any pending reconnection timers (from both aggressive and idle modes)
+        // Clear any pending reconnection timers
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
-        }
-        if (idleRetryTimeoutRef.current) {
-          clearTimeout(idleRetryTimeoutRef.current);
-          idleRetryTimeoutRef.current = null;
         }
 
         // Reset reconnection attempt counter on successful connection
@@ -133,10 +127,12 @@ const useDataFetcher = () => {
     const attemptReconnect = () => {
       if (!isMounted) return;
 
-      // Check if we've exhausted aggressive retry attempts
+      // Check if we've exhausted aggressive retry attempts - HARD STOP
       if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        console.log(`Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Entering idle mode.`);
-        enterIdleMode();
+        console.log(`⛔ Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Entering suspended state.`);
+        console.log('ℹ️  Reconnection will resume when tab becomes visible or network is restored.');
+        if (isMounted) setIsWebSocketConnected(false);
+        // DO NOT schedule any more retries - hard stop here
         return;
       }
 
@@ -156,45 +152,50 @@ const useDataFetcher = () => {
     };
 
     // ------------------------------------
-    // 4. Idle Mode - Low-Frequency Recovery Attempts
+    // 4. Event-Driven Recovery Handler
     // ------------------------------------
-    const enterIdleMode = () => {
-      if (!isMounted) return;
+    const handleRecoveryTrigger = () => {
+      // Only attempt recovery if we're in a disconnected state
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        console.log('🔄 Recovery event detected - attempting reconnection...');
 
-      console.log(`Entering idle mode. Will retry every ${IDLE_RETRY_INTERVAL / 1000}s...`);
+        // Reset retry counter for fresh reconnection cycle
+        reconnectAttemptRef.current = 0;
 
-      // Schedule a low-frequency keepalive ping
-      idleRetryTimeoutRef.current = setTimeout(() => {
-        if (!isMounted) return;
+        // Clear any pending timers
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
 
-        console.log('Idle mode: Attempting connection recovery...');
+        // Attempt connection
         setupWebSocket();
-
-        // Stay in idle mode for next attempt (don't increment reconnectAttemptRef)
-        // This creates a steady-state low-frequency ping
-        enterIdleMode();
-      }, IDLE_RETRY_INTERVAL);
+      }
     };
 
     fetchInitialData();
     setupWebSocket();
 
     // ------------------------------------
-    // 5. Cleanup Function
+    // 5. Attach Event-Driven Recovery Listeners
+    // ------------------------------------
+    document.addEventListener('visibilitychange', handleRecoveryTrigger);
+    window.addEventListener('online', handleRecoveryTrigger);
+
+    // ------------------------------------
+    // 6. Cleanup Function
     // ------------------------------------
     return () => {
       isMounted = false;
 
-      // Clear aggressive reconnection timeout
+      // Remove event listeners
+      document.removeEventListener('visibilitychange', handleRecoveryTrigger);
+      window.removeEventListener('online', handleRecoveryTrigger);
+
+      // Clear reconnection timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
-      }
-
-      // Clear idle mode timeout
-      if (idleRetryTimeoutRef.current) {
-        clearTimeout(idleRetryTimeoutRef.current);
-        idleRetryTimeoutRef.current = null;
       }
 
       // Close WebSocket if open
