@@ -10,6 +10,8 @@ const WS_API_URL = 'ws://localhost:8001';
 // Reconnection configuration
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]; // ms
 const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
+const MAX_RECONNECT_ATTEMPTS = 10; // Stop aggressive retries after this many failures
+const IDLE_RETRY_INTERVAL = 60000; // 60s - low-frequency ping during idle phase
 
 // --- Custom Hook Definition ---
 const useDataFetcher = () => {
@@ -22,6 +24,7 @@ const useDataFetcher = () => {
   // Refs for reconnection logic (persist across renders)
   const reconnectAttemptRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
+  const idleRetryTimeoutRef = useRef(null); // For low-frequency pings in idle mode
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -66,8 +69,20 @@ const useDataFetcher = () => {
 
       wsRef.current.onopen = () => {
         console.log("WebSocket connected to Python server.");
+
+        // Clear any pending reconnection timers (from both aggressive and idle modes)
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        if (idleRetryTimeoutRef.current) {
+          clearTimeout(idleRetryTimeoutRef.current);
+          idleRetryTimeoutRef.current = null;
+        }
+
         // Reset reconnection attempt counter on successful connection
         reconnectAttemptRef.current = 0;
+
         if (isMounted) setIsWebSocketConnected(true);
       };
 
@@ -118,6 +133,13 @@ const useDataFetcher = () => {
     const attemptReconnect = () => {
       if (!isMounted) return;
 
+      // Check if we've exhausted aggressive retry attempts
+      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        console.log(`Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Entering idle mode.`);
+        enterIdleMode();
+        return;
+      }
+
       // Calculate delay using exponential backoff
       const delayIndex = Math.min(reconnectAttemptRef.current, RECONNECT_DELAYS.length - 1);
       const delay = RECONNECT_DELAYS[delayIndex];
@@ -133,19 +155,46 @@ const useDataFetcher = () => {
       }, delay);
     };
 
+    // ------------------------------------
+    // 4. Idle Mode - Low-Frequency Recovery Attempts
+    // ------------------------------------
+    const enterIdleMode = () => {
+      if (!isMounted) return;
+
+      console.log(`Entering idle mode. Will retry every ${IDLE_RETRY_INTERVAL / 1000}s...`);
+
+      // Schedule a low-frequency keepalive ping
+      idleRetryTimeoutRef.current = setTimeout(() => {
+        if (!isMounted) return;
+
+        console.log('Idle mode: Attempting connection recovery...');
+        setupWebSocket();
+
+        // Stay in idle mode for next attempt (don't increment reconnectAttemptRef)
+        // This creates a steady-state low-frequency ping
+        enterIdleMode();
+      }, IDLE_RETRY_INTERVAL);
+    };
+
     fetchInitialData();
     setupWebSocket();
 
     // ------------------------------------
-    // 4. Cleanup Function
+    // 5. Cleanup Function
     // ------------------------------------
     return () => {
       isMounted = false;
 
-      // Clear any pending reconnection timeout
+      // Clear aggressive reconnection timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+
+      // Clear idle mode timeout
+      if (idleRetryTimeoutRef.current) {
+        clearTimeout(idleRetryTimeoutRef.current);
+        idleRetryTimeoutRef.current = null;
       }
 
       // Close WebSocket if open
