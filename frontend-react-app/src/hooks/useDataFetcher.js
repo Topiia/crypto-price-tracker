@@ -88,10 +88,53 @@ const useDataFetcher = () => {
           // The message is a JSON string containing a list of new data points
           const newDataBatch = JSON.parse(event.data);
 
+          // Validate data structure before updating state
+          if (!Array.isArray(newDataBatch)) {
+            console.error("Invalid data format: expected array, got:", typeof newDataBatch);
+            return;
+          }
+
+          // Filter and validate each data point
+          const validatedData = newDataBatch.filter(point => {
+            // Check if point is an object
+            if (!point || typeof point !== 'object') {
+              console.warn("Skipping invalid data point (not an object):", point);
+              return false;
+            }
+
+            // Check for required fields
+            const requiredFields = ['id', 'asset_id', 'timestamp', 'price_usd', 'volume_24h'];
+            const missingFields = requiredFields.filter(field => !(field in point));
+
+            if (missingFields.length > 0) {
+              console.warn(`Skipping invalid data point (missing fields: ${missingFields.join(', ')}):`, point);
+              return false;
+            }
+
+            // Validate data types
+            if (typeof point.price_usd !== 'number' || isNaN(point.price_usd)) {
+              console.warn("Skipping data point with invalid price_usd:", point);
+              return false;
+            }
+
+            if (typeof point.volume_24h !== 'number' || isNaN(point.volume_24h)) {
+              console.warn("Skipping data point with invalid volume_24h:", point);
+              return false;
+            }
+
+            return true;
+          });
+
+          // Only update state if we have valid data
+          if (validatedData.length === 0) {
+            console.warn("No valid data points in batch, skipping update");
+            return;
+          }
+
           // Use the functional update to safely append new data
           setDataPoints(prevData => {
             // Combine the previous data with the new batch
-            const updatedData = [...prevData, ...newDataBatch];
+            const updatedData = [...prevData, ...validatedData];
 
             // Optional: Limit the total data size to maintain performance
             // e.g., keep the last 500 points total.
