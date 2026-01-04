@@ -47,6 +47,23 @@ Start the WebSocket Server (Real-Time Data):
 ```bash
 python websocket_server.py
 ```
+### Configurable WebSocket Update Interval
+
+The WebSocket price stream interval is configurable via an environment variable.
+
+By default, the server emits updates every 0.5 seconds.  
+This can be adjusted without modifying code, which is useful for demos, debugging, or performance testing.
+
+**Environment Variable:**
+- `FEED_INTERVAL` — update interval in seconds (float)
+
+**Example (slower updates for clarity):**
+
+Windows (PowerShell):
+```powershell
+$env:FEED_INTERVAL="5"
+python websocket_server.py
+
 
 ### 2. Frontend Setup
 
