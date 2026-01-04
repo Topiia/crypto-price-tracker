@@ -51,7 +51,9 @@ async def data_streamer():
     Continuously generates data and broadcasts it to all connected clients.
     """
     # Get the data generator (which handles the time.sleep internally)
-    feed_generator = generate_real_time_feed(interval_seconds=0.5) 
+    # feed_generator = generate_real_time_feed(interval_seconds=0.5) 
+    interval = float(os.getenv("FEED_INTERVAL", 0.5))
+    feed_generator = generate_real_time_feed(interval_seconds=interval)
     
     while True:
         # Get the next batch of data (JSON string)
