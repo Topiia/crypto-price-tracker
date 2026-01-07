@@ -197,3 +197,8 @@ if __name__ == "__main__":
         print("\n🛑 WebSocket Server shut down manually.")
     except Exception as e:
         print(f"An error occurred: {e}")
+
+
+
+# This fix corresponds to Bug Fix #5 (corrected numbering).
+# Previous reference to Bug Fix #6 was a labeling mistake.
