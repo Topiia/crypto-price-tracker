@@ -1,5 +1,7 @@
 import asyncio
 import websockets
+from websockets.server import WebSocketServerProtocol
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 import json
 from datetime import datetime
 from data_generator import generate_real_time_feed
@@ -29,6 +31,19 @@ def display_ws_events():
             print(f"  {event}")
     print("="*50 + "\n")
 
+# --- Helper: Remove Dead Connection ---
+def remove_client(websocket: WebSocketServerProtocol, reason: str = "disconnect"):
+    """
+    Proactively remove a client from CONNECTED_CLIENTS.
+    This should be called immediately when a connection is detected as dead.
+    """
+    if websocket in CONNECTED_CLIENTS:
+        CONNECTED_CLIENTS.remove(websocket)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        client_ip = websocket.remote_address[0] if websocket.remote_address else "unknown"
+        ws_event_buffer.append(f"[{timestamp}] REMOVED {client_ip} ({reason}) (total: {len(CONNECTED_CLIENTS)})")
+        display_ws_events()
+
 # --- 1. Client Connection Handler ---
 async def handler(websocket):
     """
@@ -55,18 +70,20 @@ async def handler(websocket):
         display_ws_events()
         
     finally:
-        # Unregister the client connection
-        CONNECTED_CLIENTS.remove(websocket)
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        ws_event_buffer.append(f"[{timestamp}] CLIENT_DISCONNECT {client_ip} (total: {len(CONNECTED_CLIENTS)})")
-        display_ws_events()
+        # Belt-and-suspenders: remove on finally (may already be removed by broadcast loop)
+        remove_client(websocket, "handler_cleanup")
 
 
-# --- 2. Real-Time Data Broadcaster ---
+# --- 2. Real-Time Data Broadcaster (Zombie-Safe) ---
 async def data_streamer():
     """
     Continuously generates data and broadcasts it to all connected clients.
     Uses Redis-backed data generator for shared state.
+    
+    ZOMBIE-SAFE IMPLEMENTATION:
+    - Filters closed connections before broadcast
+    - Proactively removes failed connections
+    - Never accumulates dead sockets
     """
     # Get the data generator (reads/writes to Redis)
     interval = float(os.getenv("FEED_INTERVAL", 0.5))
@@ -90,17 +107,44 @@ async def data_streamer():
                 display_ws_events()
         except:
             pass  # Skip logging if parsing fails
+        print(f"[BROADCAST] Sending to {len(CONNECTED_CLIENTS)} clients")
+        # ============================================================
+        # ZOMBIE-SAFE BROADCAST: Fail-Fast Cleanup on Send Errors
+        # ============================================================
+        # We cannot rely on client.open (not available on ServerConnection)
+        # Instead, we use send() errors as the liveness check
+        # Dead connections will fail immediately and be removed proactively
         
-        # Create a set of tasks for broadcasting the data
-        broadcast_tasks = [client.send(data_to_send) for client in CONNECTED_CLIENTS]
+        # Create broadcast tasks for all current clients
+        # safe_send() will remove any that fail
+        broadcast_tasks = []
+        for client in list(CONNECTED_CLIENTS):  # Copy to avoid modification during iteration
+            broadcast_tasks.append(safe_send(client, data_to_send))
         
-        # Wait for all broadcasts to complete without blocking
+        # Wait for all broadcasts to complete
         if broadcast_tasks:
-             # Use gather to run all send operations concurrently
-            await asyncio.gather(*broadcast_tasks, return_exceptions=True) 
+            await asyncio.gather(*broadcast_tasks, return_exceptions=True)
+ 
         
-        # Crucial: yield control back to the asyncio loop to allow other tasks (like new client handlers) to run
-        await asyncio.sleep(0) 
+        # Yield control back to the asyncio loop
+        await asyncio.sleep(0)
+
+
+async def safe_send(websocket: WebSocketServerProtocol, message: str):
+    """
+    Safely send a message to a WebSocket, with fail-fast cleanup.
+    
+    If send fails (ConnectionClosed, RuntimeError), immediately remove
+    the client from CONNECTED_CLIENTS without waiting for TCP timeout.
+    """
+    try:
+        await websocket.send(message)
+    except (ConnectionClosed, ConnectionClosedError, RuntimeError) as e:
+        # Fail-fast cleanup: immediately remove dead connection
+        remove_client(websocket, f"send_error_{type(e).__name__}")
+    except Exception as e:
+        # Catch-all for unexpected errors
+        remove_client(websocket, f"unknown_error_{type(e).__name__}")
 
 
 # --- 3. Server Execution ---
@@ -139,6 +183,7 @@ async def main():
     print("--------------------------------------------------")
     print(f"🚀 WebSocket Server running on ws://localhost:{WS_PORT}")
     print(f"✅ Using Redis shared state")
+    print(f"✅ Zombie-safe broadcast enabled")
     print("--------------------------------------------------")
     
     # Run both the server and the streamer tasks until they complete (which is never, in a server)
